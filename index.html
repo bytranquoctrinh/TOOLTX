@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>MD5 Tool - Sun52 Predictor</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<!-- ====== Logo khi lưu vào màn hình chính iPhone ====== -->
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MD5 Tool">
+<!-- ============================================== -->
+
+<style>
+  body { font-family: Arial, sans-serif; max-width: 900px; margin: 18px auto; padding: 0 12px; color:#222 }
+  h1 { font-size:20px }
+  input, select, button { padding:8px; font-size:14px; margin:6px 0 }
+  table { border-collapse: collapse; width:100%; margin-top:12px }
+  th, td { border:1px solid #ddd; padding:8px; font-size:13px }
+  th { background:#f3f3f3 }
+  .actions button { margin-right:6px }
+  pre { background:#f7f7f7; padding:10px; border:1px solid #e0e0e0; white-space:pre-wrap }
+  .small { font-size:13px; color:#666 }
+  .note { color:#555; font-size:13px }
+</style>
+</head>
+<body>
+  <h1>MD5 Tool — Sun52 Predictor</h1>
+  <p class="small">Lưu MD5 + nhãn (tài/xỉu). Nhấn <strong>Huấn luyện & Dự đoán</strong> để công cụ tìm quy luật đơn giản từ dữ liệu đã nhập. <strong>Lưu ý:</strong> nếu MD5 bạn dự đoán đã có trong bản ghi, công cụ sẽ trả về nhãn thực (exact match) — điều này tránh việc "dự đoán sai" khi bạn đã lưu nhãn đúng trước đó.</p>
+
+  <label for="md5">MD5 (thêm / sửa):</label><br>
+  <input id="md5" placeholder="32 ký tự hex, ví dụ: ec56ac3e..." size="40">
+  <br>
+  <label for="label">Kết quả thật:</label>
+  <select id="label">
+    <option value="tai">tài</option>
+    <option value="xiu">xỉu</option>
+  </select>
+  <br>
+  <button id="addBtn">Thêm / Lưu</button>
+  <button id="clearAll" style="margin-left:8px">Xoá tất cả</button>
+  <div class="note">Ghi chú: nếu muốn sửa một bản ghi, bấm Sửa trên hàng đó — ô input sẽ chứa giá trị để bạn chỉnh, sau đó nhấn "Thêm / Lưu" để lưu thay đổi.</div>
+  <hr>
+
+  <button id="trainBtn">Huấn luyện & Dự đoán</button>
+  <div style="margin-top:8px">
+    <label for="predictMd5">MD5 để dự đoán (tùy chọn):</label>
+    <input id="predictMd5" placeholder="Nhập MD5 để nhận dự đoán" size="40">
+  </div>
+  <pre id="report">Chưa huấn luyện.</pre>
+
+  <h3>Bản ghi</h3>
+  <table id="records"><thead><tr><th>#</th><th>MD5</th><th>Label</th><th>Time</th><th>Hành động</th></tr></thead><tbody></tbody></table>
+
+<script>
+const STORAGE_KEY = 'md5data_v5_fixed';
+let records = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let editId = null; // id of record being edited
+
+// Mảng chứa các quy luật được tìm thấy, sắp xếp theo bias giảm dần
+let rules = [];
+
+function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); }
+
+function isHex32(s){ return /^[0-9a-fA-F]{32}$/.test(s.trim()); }
+
+function render(){
+  const tbody = document.querySelector('#records tbody');
+  if(!tbody) return;
+  if(records.length === 0){ tbody.innerHTML = '<tr><td colspan="5">Chưa có bản ghi</td></tr>'; return; }
+  let html = '';
+  // show newest first
+  const list = records.slice().reverse();
+  list.forEach((r, idx) => {
+    html += `<tr>`+
+            `<td>${records.length - idx}</td>`+
+            `<td style="font-family:monospace">${r.md5}</td>`+
+            `<td>${r.label}</td>`+
+            `<td>${new Date(r.time).toLocaleString()}</td>`+
+            `<td class="actions">`+
+              `<button onclick="startEdit(${r.id})">Sửa</button>`+
+              `<button onclick="deleteRecord(${r.id})">Xóa</button>`+
+            `</td>`+
+            `</tr>`;
+  });
+  tbody.innerHTML = html;
+}
+
+function addOrUpdate(){
+  const md5El = document.getElementById('md5');
+  const labelEl = document.getElementById('label');
+  const md5 = md5El.value.trim().toLowerCase();
+  const label = labelEl.value;
+  if(!isHex32(md5)){ alert('MD5 phải là 32 ký tự hex (0-9, a-f).'); return; }
+
+  if(editId === null){
+    // add
+    const id = Date.now();
+    records.push({id, md5, label, time: new Date().toISOString()});
+  } else {
+    // update existing record
+    const idx = records.findIndex(r => r.id === editId);
+    if(idx === -1){ alert('Không tìm thấy bản ghi để sửa.'); editId = null; return; }
+    records[idx].md5 = md5;
+    records[idx].label = label;
+    records[idx].time = new Date().toISOString();
+    editId = null;
+  }
+  save();
+  md5El.value = '';
+  render();
+}
+
+function startEdit(id){
+  const rec = records.find(r=>r.id===id);
+  if(!rec) return alert('Bản ghi không tồn tại.');
+  editId = id;
+  document.getElementById('md5').value = rec.md5;
+  document.getElementById('label').value = rec.label;
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+function deleteRecord(id){
+  if(!confirm('Xác nhận xóa bản ghi này?')) return;
+  records = records.filter(r=>r.id!==id);
+  save();
+  if(editId === id) editId = null;
+  render();
+}
+
+function clearAll(){
+  if(!confirm('Xác nhận xóa tất cả bản ghi?')) return;
+  records = [];
+  save();
+  editId = null;
+  rules = [];
+  render();
+  document.getElementById('report').textContent = 'Đã xóa tất cả.';
+}
+
+// features to check
+const FEATURES = [
+  {name: 'byte đầu', func: md5 => md5.slice(0,2)},
+  {name: 'byte cuối', func: md5 => md5.slice(-2)},
+  {name: 'ký tự đầu (hex)', func: md5 => md5[0]},
+  {name: 'ký tự thứ 2 (hex)', func: md5 => md5[1]},
+  {name: 'tổng nibble mod 2', func: md5 => {
+    let sum=0; for(let i=0;i<32;i++) sum += parseInt(md5[i],16); return sum % 2;
+  }},
+  {name: 'tổng nibble mod 3', func: md5 => {
+    let sum=0; for(let i=0;i<32;i++) sum += parseInt(md5[i],16); return sum % 3;
+  }}
+];
+
+function trainModel(){
+  if(records.length < 3){ alert('Cần ít nhất 3 bản ghi để phân tích.'); return; }
+
+  rules = [];
+  const featureDetails = [];
+
+  FEATURES.forEach(f => {
+    const groups = {};
+    records.forEach(r => {
+      const key = f.func(r.md5);
+      if(!groups[key]) groups[key] = {tai:0, xiu:0};
+      if(r.label === 'tai') groups[key].tai++;
+      else if(r.label === 'xiu') groups[key].xiu++;
+    });
+
+    const keys = Object.keys(groups);
+    const details = [];
+    keys.forEach(k => {
+      const g = groups[k];
+      const tot = g.tai + g.xiu;
+      if(tot === 0) return;
+      const dominant = g.tai >= g.xiu ? 'tai' : 'xiu';
+      const bias = Math.max(g.tai, g.xiu) / tot;
+      details.push({key:k, tai:g.tai, xiu:g.xiu, tot, dominant, bias});
+    });
+
+    details.sort((a,b) => b.tot - a.tot || b.bias - a.bias);
+    featureDetails.push({feature:f.name, groups: details});
+
+    details.forEach(d => {
+      if(d.tot >= 2 && d.bias > 0.6){
+        rules.push({
+          feature: f.name,
+          value: d.key,
+          label: d.dominant,
+          bias: d.bias,
+          count: d.tot
+        });
+      }
+    });
+  });
+
+  rules.sort((a,b) => b.bias - a.bias);
+
+  let rep = '';
+  rep += `Tổng bản ghi: ${records.length}\n`;
+  const tai = records.filter(r=>r.label==='tai').length;
+  const xiu = records.filter(r=>r.label==='xiu').length;
+  rep += `Tài: ${tai} | Xỉu: ${xiu}\n\n`;
+
+  if(rules.length === 0){
+    rep += 'Không tìm thấy quy luật rõ ràng (không đủ bias hoặc mẫu).\n\nCác phân tích chi tiết (top keys mỗi đặc trưng):\n';
+  } else {
+    rep += `Các quy luật tìm được (theo bias giảm dần):\n`;
+    rules.forEach(r => {
+      rep += `- Đặc trưng: ${r.feature}, Giá trị: ${r.value}, Nhãn: ${r.label}, Mẫu: ${r.count}, Bias: ${(r.bias*100).toFixed(1)}%\n`;
+    });
+    rep += '\n';
+  }
+
+  featureDetails.forEach(fd => {
+    rep += `== ${fd.feature} ==\n`;
+    fd.groups.slice(0,5).forEach(g => {
+      rep += `${g.key}: tài=${g.tai}, xỉu=${g.xiu}, tổng=${g.tot}, bias=${(g.bias*100).toFixed(1)}% (đa số=${g.dominant})\n`;
+    });
+    rep += '\n';
+  });
+
+  const md5Predict = document.getElementById('predictMd5').value.trim().toLowerCase();
+  if(md5Predict.length === 32){
+    const exact = records.find(r => r.md5 === md5Predict);
+    if(exact){
+      rep = `Exact match found in saved data: MD5 đã có nhãn = ${exact.label}\n\n` + rep;
+      document.getElementById('report').textContent = rep;
+      return;
+    }
+
+    let predicted = null;
+    for(let rule of rules){
+      const featureObj = FEATURES.find(f => f.name === rule.feature);
+      if(!featureObj) continue;
+      const val = featureObj.func(md5Predict);
+      if(val === rule.value){
+        predicted = rule;
+        break;
+      }
+    }
+
+    if(predicted){
+      rep = `DỰ ĐOÁN (theo quy luật tìm được): ${predicted.label} — confidence=${(predicted.bias*100).toFixed(1)}% (dựa trên ${predicted.count} mẫu có cùng giá trị ${predicted.value} của đặc trưng ${predicted.feature})\n\n` + rep;
+    } else {
+      const total = tai + xiu;
+      if(total === 0){
+        rep = 'Chưa có dữ liệu để dự đoán.\n\n' + rep;
+      } else {
+        const taiRatio = tai / total;
+        const xiuRatio = xiu / total;
+        const label = taiRatio >= xiuRatio ? 'tai' : 'xiu';
+        const conf = Math.max(taiRatio, xiuRatio);
+        rep = `Không có quy luật áp dụng với MD5 này.\nDự đoán theo tỉ lệ tổng thể: ${label} — confidence=${(conf*100).toFixed(1)}%\n\n` + rep;
+      }
+    }
+  }
+
+  document.getElementById('report').textContent = rep;
+}
+
+// quick predict button: kiểm tra exact match, hoặc dùng quy luật nếu đã huấn luyện
+function predictNow(){
+  const md5 = document.getElementById('predictMd5').value.trim().toLowerCase();
+  const out = document.getElementById('report');
+  if(md5.length !== 32){ alert('MD5 để dự đoán phải 32 ký tự hex'); return; }
+  const exact = records.find(r => r.md5 === md5);
+  if(exact){
+    out.textContent = `Exact match: nhãn lưu = ${exact.label}`;
+    return;
+  }
+  if(rules.length === 0){ out.textContent = 'Chưa huấn luyện hoặc không tìm thấy quy luật rõ ràng. Hãy nhấn "Huấn luyện & Dự đoán".'; return; }
+  let predicted = null;
+  for(let rule of rules){
+    const featureObj = FEATURES.find(f => f.name === rule.feature);
+    if(!featureObj) continue;
+    const val = featureObj.func(md5);
+    if(val === rule.value){
+      predicted = rule;
+      break;
+    }
+  }
+  if(predicted){
+    out.textContent = `Dự đoán: ${predicted.label} — confidence=${(predicted.bias*100).toFixed(1)}% (dựa trên ${predicted.count} mẫu có cùng giá trị ${predicted.value} của đặc trưng ${predicted.feature})`;
+  } else {
+    const tai = records.filter(r=>r.label==='tai').length;
+    const xiu = records.filter(r=>r.label==='xiu').length;
+    const total = tai + xiu;
+    if(total === 0){
+      out.textContent = 'Chưa có dữ liệu để dự đoán.';
+      return;
+    }
+    const taiRatio = tai / total;
+    const xiuRatio = xiu / total;
+    const label = taiRatio >= xiuRatio ? 'tai' : 'xiu';
+    const conf = Math.max(taiRatio, xiuRatio);
+    out.textContent = `Không có quy luật áp dụng với MD5 này.\nDự đoán theo tỉ lệ tổng thể: ${label} — confidence=${(conf*100).toFixed(1)}%`;
+  }
+}
+
+// bindings
+document.getElementById('addBtn').addEventListener('click', addOrUpdate);
+document.getElementById('clearAll').addEventListener('click', clearAll);
+document.getElementById('trainBtn').addEventListener('click', trainModel);
+document.getElementById('predictMd5').addEventListener('keydown', function(e){ if(e.key === 'Enter'){ e.preventDefault(); predictNow(); } });
+
+render();
+</script>
+</body>
+</html>
